@@ -163,8 +163,3 @@ def convert_to_readable_string(processed_content: List[Tuple[str, str]]) -> str:
         result_parts.append(section)
     
     return "\n".join(result_parts)
-
-# 使用示例:
-# search_results = googleapis("hello", 5)
-# processed_content = fetch_and_process_web_content(search_results)
-# readable_string = convert_to_readable_string(processed_content)
