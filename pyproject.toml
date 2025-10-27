@@ -33,7 +33,10 @@ dependencies = [
     'pyreadline3 >= 3.4.1, < 4.0.0; sys_platform == "win32"',
     "prompt_toolkit >= 3.0.51",
 ]
-
+search = [
+    "requests",
+    "beautifulsoup4",
+]
 [project.optional-dependencies]
 litellm = [
     "litellm == 1.42.5"

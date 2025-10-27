@@ -2,14 +2,20 @@ import requests
 from bs4 import BeautifulSoup
 from typing import List, Tuple
 import os
+
 from instructor import OpenAISchema
 from pydantic import Field
-
+from sgpt.config import cfg
 
 # this tool need full test.really don't suggest to use it yet.
+# set env to use this tool.
+# TODO:When this tool is used,AI might repeatly use the same function.This might make serously problem.
+# TODO:This tool is designed for google's search api.However,you can make more  adapter for this easily(I hope so).
+
+# TODO:When qwen3 use this tool,it will repeatly use it.I ALREADY WORN OUT.
 class Function(OpenAISchema):
     """
-    Performs an internet search using Google Custom Search API and returns the results with content.
+    Performs an internet search using Google Custom Search API and returns the results.usually is exit code and message.repeatedly use this tool is not allowed.
     """
     
     query: str = Field(
@@ -32,6 +38,7 @@ class Function(OpenAISchema):
     @classmethod
     def _get_search_config(cls):
         """Get search configuration"""
+        # if u need to use this tool,you need to set env variables(if not, this tool might influnces normal use).I admit this is dumb:P
         return {
             "INTERNET_SEARCH_ENGINE_API": os.getenv("INTERNET_SEARCH_ENGINE_API", "https://www.googleapis.com/customsearch/v1"),
             "INTERNET_SEARCH_API_KEY": os.getenv("INTERNET_SEARCH_API_KEY", None),
@@ -74,7 +81,9 @@ class Function(OpenAISchema):
         }
         
         try:
-            response = requests.get(url, params=params, timeout=10)
+            # set request timeout
+            timeout = int(cfg.get("REQUEST_TIMEOUT"))
+            response = requests.get(url, params=params, timeout=timeout)
             response.raise_for_status()
             data = response.json()
             
@@ -96,11 +105,11 @@ class Function(OpenAISchema):
             
         except requests.exceptions.Timeout:
             raise requests.exceptions.Timeout("Google Search API request timeout")
-        except requests.exceptions.RequestException:
-            raise
+        except requests.exceptions.RequestException as e:
+            raise requests.exceptions.RequestException(f"Request failed: {str(e)}") from e
         except ValueError as e:
             # JSON parsing error
-            raise requests.exceptions.RequestException(f"Failed to parse API response: {str(e)}")
+            raise requests.exceptions.RequestException(f"Failed to parse API response: {str(e)}") from e
 
     @classmethod
     def _fetch_and_process_web_content(cls, search_results: list) -> List[Tuple[str, str]]:
@@ -115,14 +124,20 @@ class Function(OpenAISchema):
         """
         processed_content = []
         
+        # Set request timeout
+        timeout = int(cfg.get("REQUEST_TIMEOUT"))
+        
         for title, url in search_results:
             try:
+                # Add delay to avoid requesting too fast
+                # time.sleep(0.5)
+                
                 # Set request headers to simulate browser
                 headers = {
                     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
                 }
                 
-                response = requests.get(url, headers=headers, timeout=10)
+                response = requests.get(url, headers=headers, timeout=timeout)
                 response.raise_for_status()
                 
                 # Parse HTML using BeautifulSoup
@@ -211,7 +226,7 @@ class Function(OpenAISchema):
             search_results = cls._googleapis(query, num_results)
             
             if not search_results:
-                return "No search results found."
+                return "Exit code: 0, Output:\nNo search results were found for your query."
             
             # Fetch web content
             processed_content = cls._fetch_and_process_web_content(search_results)
@@ -219,18 +234,13 @@ class Function(OpenAISchema):
             # Convert to readable format
             readable_output = cls._convert_to_readable_string(processed_content)
             
-            return readable_output
+            return f"Exit code: 0, Output:\n{readable_output}"
             
         except ValueError as e:
-            return f"Configuration Error: {e}"
-        except requests.exceptions.Timeout:
-            return "Error: Search request timed out."
+            return "Exit code: 1, Output:\nInternet search tool configuration error: " + str(e) + ". Please check your API key and search engine configuration."
+        except requests.exceptions.Timeout as e:
+            return "Exit code: 1, Output:\nSearch request timed out after " + str(cfg.get("REQUEST_TIMEOUT")) + " seconds. Error details: " + str(e) + ". Please try a different query or check your network connection."
         except requests.exceptions.RequestException as e:
-            return f"Network Error: {e}"
+            return "Exit code: 1, Output:\nNetwork error during search. Error details: " + str(e) + ". Please check your network connection and API configuration."
         except Exception as e:
-            return f"An unexpected error occurred: {e}"
-
-
-def main():
-    # Main function placeholder
-    pass
+            return "Exit code: 1, Output:\nUnexpected error during search. Error type: " + type(e).__name__ + ", Error details: " + str(e) + ". The operation has been terminated to prevent further issues."
