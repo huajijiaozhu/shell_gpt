@@ -2,6 +2,7 @@ import requests
 from bs4 import BeautifulSoup
 from typing import List, Tuple
 import os
+import concurrent.futures
 
 from instructor import OpenAISchema
 from pydantic import Field
@@ -127,65 +128,87 @@ class Function(OpenAISchema):
         # Set request timeout
         timeout = int(cfg.get("REQUEST_TIMEOUT"))
         
-        for title, url in search_results:
-            try:
-                # Add delay to avoid requesting too fast
-                # time.sleep(0.5)
-                
-                # Set request headers to simulate browser
-                headers = {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-                }
-                
-                response = requests.get(url, headers=headers, timeout=timeout)
-                response.raise_for_status()
-                
-                # Parse HTML using BeautifulSoup
-                soup = BeautifulSoup(response.content, 'html.parser')
-                
-                # Remove script and style tags
-                for script in soup(["script", "style"]):
-                    script.decompose()
-                
-                # Try to get main content area
-                # Prioritize searching for content-related tags
-                content_selectors = [
-                    'main', 'article', '[role="main"]', '.content', '#content',
-                    '.post', '.article', 'body'
-                ]
-                
-                text_content = ""
-                for selector in content_selectors:
-                    content_element = soup.select_one(selector)
-                    if content_element:
-                        text_content = content_element.get_text(separator=' ', strip=True)
-                        break
-                
-                if not text_content:
-                    # If no specific content area is found, get text from entire body
-                    body = soup.find('body')
-                    if body:
-                        text_content = body.get_text(separator=' ', strip=True)
-                    else:
-                        text_content = soup.get_text(separator=' ', strip=True)
-                
-                # Clean text content
-                # Remove extra whitespace characters and line breaks
-                lines = (line.strip() for line in text_content.splitlines())
-                chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
-                text_content = ' '.join(chunk for chunk in chunks if chunk)
-                
-                # Limit content length to avoid excessive length
-                if len(text_content) > 4096:
-                    text_content = text_content[:4096] + "..."
-                
-                processed_content.append((title, text_content))
-                
-            except Exception as e:
-                # If fetching webpage fails, add error message
-                processed_content.append((title, f"Failed to fetch content: {str(e)}"))
+        # Use ThreadPoolExecutor to fetch web content concurrently
+        with concurrent.futures.ThreadPoolExecutor(max_workers=min(10, len(search_results))) as executor:
+            # Submit all tasks
+            future_to_url = {
+                executor.submit(cls._fetch_single_page, title, url, timeout): (title, url)
+                for title, url in search_results
+            }
+            
+            # Collect results as they complete
+            for future in concurrent.futures.as_completed(future_to_url):
+                title, url = future_to_url[future]
+                try:
+                    content = future.result()
+                    processed_content.append((title, content))
+                except Exception as e:
+                    # If fetching webpage fails, add error message
+                    processed_content.append((title, f"Failed to fetch content: {str(e)}"))
         
         return processed_content
+
+    @classmethod
+    def _fetch_single_page(cls, title: str, url: str, timeout: int) -> str:
+        """
+        Fetch and process content from a single URL
+        
+        Args:
+            title: Page title
+            url: Page URL
+            timeout: Request timeout in seconds
+            
+        Returns:
+            str: Processed content
+        """
+        # Set request headers to simulate browser
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        }
+        
+        response = requests.get(url, headers=headers, timeout=timeout)
+        response.raise_for_status()
+        
+        # Parse HTML using BeautifulSoup
+        soup = BeautifulSoup(response.content, 'html.parser')
+        
+        # Remove script and style tags
+        for script in soup(["script", "style"]):
+            script.decompose()
+        
+        # Try to get main content area
+        # Prioritize searching for content-related tags
+        content_selectors = [
+            'main', 'article', '[role="main"]', '.content', '#content',
+            '.post', '.article', 'body'
+        ]
+        
+        text_content = ""
+        for selector in content_selectors:
+            content_element = soup.select_one(selector)
+            if content_element:
+                text_content = content_element.get_text(separator=' ', strip=True)
+                break
+        
+        if not text_content:
+            # If no specific content area is found, get text from entire body
+            body = soup.find('body')
+            if body:
+                text_content = body.get_text(separator=' ', strip=True)
+            else:
+                text_content = soup.get_text(separator=' ', strip=True)
+        
+        # Clean text content
+        # Remove extra whitespace characters and line breaks
+        lines = (line.strip() for line in text_content.splitlines())
+        chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
+        text_content = ' '.join(chunk for chunk in chunks if chunk)
+        
+        # Limit content length to avoid excessive length
+        if len(text_content) > 4096:
+            text_content = text_content[:4096] + "..."
+        
+        return text_content
 
     @classmethod
     def _convert_to_readable_string(cls, processed_content: List[Tuple[str, str]]) -> str:
