@@ -49,7 +49,7 @@ class Function(OpenAISchema):
         }
 
     @classmethod
-    def _googleapis(cls, query, num) -> List[Tuple[str, str]]:
+    def _googleapis(cls, query: str, num: int) -> List[Tuple[str, str]]:
         """
         Perform search using Google Custom Search API
 
@@ -123,9 +123,7 @@ class Function(OpenAISchema):
             ) from e
 
     @classmethod
-    def _fetch_and_process_web_content(
-        cls, search_results: list
-    ) -> List[Tuple[str, str]]:
+    def _fetch_and_process_web_content(cls, search_results: list) -> List[Tuple[str, str]]:
         """
         Sequentially visit URLs in search results, fetch web page content and process it
 
@@ -236,9 +234,7 @@ class Function(OpenAISchema):
         return text_content
 
     @classmethod
-    def _convert_to_readable_string(
-        cls, processed_content: List[Tuple[str, str]]
-    ) -> str:
+    def _convert_to_readable_string(cls, processed_content: List[Tuple[str, str]]) -> str:
         """
         Convert processed content to a readable long string
 
