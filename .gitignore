@@ -3,3 +3,6 @@ scripts/set_env_test.sh
 
 # ignore binary files
 __pycache__/
+
+# ignore python cache
+.mypy_cache/
